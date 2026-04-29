@@ -1,578 +1,500 @@
-# Implementación en Astro 5 / 6
+# Implementación de Cookie Consent en Astro
 
-Guía completa para integrar `@antoniovalls/cookieconsent` en un proyecto Astro. Cubre el caso estándar (MPA), View Transitions con `<ClientRouter>` y carga condicional de scripts de terceros.
-
----
-
-## Índice
-
-1. [Instalación](#1-instalación)
-2. [Componente `CookieBanner.astro`](#2-componente-cookiebannerastro)
-3. [Incluirlo en el Layout](#3-incluirlo-en-el-layout)
-4. [Compatibilidad con View Transitions](#4-compatibilidad-con-view-transitions)
-5. [Configuración con i18n del sitio](#5-configuración-con-i18n-del-sitio)
-6. [Tema claro/oscuro siguiendo al sitio](#6-tema-clarooscuro-siguiendo-al-sitio)
-7. [Carga condicional de Google Analytics 4](#7-carga-condicional-de-google-analytics-4)
-8. [Botón para reabrir preferencias](#8-botón-para-reabrir-preferencias)
-9. [TypeScript](#9-typescript)
-10. [Variables CSS personalizadas](#10-variables-css-personalizadas)
-11. [SSR vs estático](#11-ssr-vs-estático)
-12. [Troubleshooting](#12-troubleshooting)
+Documentación completa de la implementación del sistema de consentimiento de cookies en este proyecto Astro, con soporte para **Google Consent Mode v2**, **Google Analytics**, **Google Maps** y **View Transitions**.
 
 ---
 
-## 1. Instalación
+## Dependencias
 
 ```bash
+# Paquete de cookieconsent personalizado (fork privado)
 pnpm add github:AntonioValls/cookieconsent
 ```
 
-Para fijar versión (recomendado) cuando crees tags en tu repo:
+El paquete provee:
+- `@antoniovalls/cookieconsent` — lógica JS del banner
+- `@antoniovalls/cookieconsent/dist/cookieconsent.css` — estilos base del banner
 
-```bash
-pnpm add github:AntonioValls/cookieconsent#v3.1.0-av.1
+---
+
+## Estructura de archivos
+
 ```
-
-Verifica que se ha añadido a `package.json`:
-
-```jsonc
-{
-    "dependencies": {
-        "@antoniovalls/cookieconsent": "github:AntonioValls/cookieconsent"
-    }
-}
+src/
+  components/
+    CookieConsent.astro          ← Componente que monta el banner
+  scripts/
+    cookieconsent.js             ← Lógica: configuración, GA, Maps, Consent Mode
+  styles/
+    cookieconsent-custom.css     ← Sobrescritura de variables CSS del banner
 ```
 
 ---
 
-## 2. Componente `CookieBanner.astro`
-
-Crea `src/components/CookieBanner.astro`:
+## 1. Componente `CookieConsent.astro`
 
 ```astro
 ---
-// CookieBanner.astro — sin props
+import "@antoniovalls/cookieconsent/dist/cookieconsent.css";
+import "../styles/cookieconsent-custom.css";
 ---
 
-<!-- Nodo donde se montará el modal. Importante para View Transitions. -->
-<div id="cc-root" data-cookieconsent-root></div>
+<!-- Nodo donde CookieConsent monta su UI. Persiste en View Transitions. -->
+<div id="cc-root" transition:persist></div>
 
 <script>
-    import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-    import * as CookieConsent from '@antoniovalls/cookieconsent';
-
-    // Inicializa solo una vez por sesión, aunque el script se re-ejecute
-    if (!window.__ccInitialized) {
-        window.__ccInitialized = true;
-
-        CookieConsent.run({
-            root: '#cc-root',
-            guiOptions: {
-                consentModal: {
-                    layout: 'box',
-                    position: 'bottom right',
-                    equalWeightButtons: true
-                },
-                preferencesModal: {
-                    layout: 'box',
-                    equalWeightButtons: true
-                }
-            },
-            categories: {
-                necessary: { enabled: true, readOnly: true },
-                analytics: {
-                    autoClear: { cookies: [{ name: /^_ga/ }, { name: '_gid' }] }
-                }
-            },
-            language: {
-                default: 'es',
-                autoDetect: 'browser',
-                translations: {
-                    es: {
-                        consentModal: {
-                            title: 'Usamos cookies',
-                            description: 'Este sitio usa cookies para mejorar tu experiencia. Puedes aceptar todas o gestionar tus preferencias.',
-                            acceptAllBtn: 'Aceptar todas',
-                            acceptNecessaryBtn: 'Solo necesarias',
-                            showPreferencesBtn: 'Preferencias',
-                            footer: '<a href="/privacidad">Política de privacidad</a>'
-                        },
-                        preferencesModal: {
-                            title: 'Preferencias de cookies',
-                            acceptAllBtn: 'Aceptar todas',
-                            acceptNecessaryBtn: 'Solo necesarias',
-                            savePreferencesBtn: 'Guardar selección',
-                            closeIconLabel: 'Cerrar',
-                            sections: [
-                                {
-                                    title: 'Uso de cookies',
-                                    description: 'Las cookies necesarias son imprescindibles para que la web funcione. Las analíticas nos ayudan a entender cómo se usa.'
-                                },
-                                {
-                                    title: 'Estrictamente necesarias',
-                                    description: 'Imprescindibles para el funcionamiento del sitio.',
-                                    linkedCategory: 'necessary'
-                                },
-                                {
-                                    title: 'Analíticas',
-                                    description: 'Estadísticas anónimas de uso del sitio.',
-                                    linkedCategory: 'analytics'
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        });
-    }
+  import "../scripts/cookieconsent.js";
 </script>
 ```
 
-> El `<div id="cc-root">` y la opción `root: '#cc-root'` son críticos para View Transitions (sección 4). En MPA puro funciona igual sin ellos.
+**Puntos clave:**
+- El `<div id="cc-root">` necesita `transition:persist` para que el banner no se destruya y reconstruya en cada navegación con View Transitions (`<ClientRouter />`).
+- El CSS base se importa aquí, antes del CSS personalizado, para que la cascada funcione correctamente.
 
 ---
 
-## 3. Incluirlo en el Layout
+## 2. Incluir el componente en el Layout
 
-`src/layouts/BaseLayout.astro`:
+En `src/layouts/Layout.astro`, importar y colocar `<CookieConsent />` **dentro del `<body>`**, después del contenido principal:
 
 ```astro
 ---
-import CookieBanner from '../components/CookieBanner.astro';
-const { title } = Astro.props;
+import { ClientRouter } from "astro:transitions";
+import CookieConsent from "../components/CookieConsent.astro";
+// ... otros imports
 ---
 
 <!doctype html>
 <html lang="es">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width" />
-        <title>{title}</title>
-    </head>
-    <body>
-        <slot />
-        <CookieBanner />
-    </body>
+  <head>
+    <!-- Importante para recargar el inicio -->
+    <ClientRouter fallback="none" />    <!-- ← al final de head -->
+  </head>
+  <body>
+    <Header />
+    <main><slot /></main>
+    <Footer />
+    <CookieConsent />   <!-- ← al final del body -->
+  </body>
 </html>
 ```
 
-Con esto el banner aparece en cualquier página que use `BaseLayout`.
+> **Importante:** `<ClientRouter fallback="none" />` activa las View Transitions de Astro. Sin `transition:persist` en `#cc-root`, el banner se reiniciaría en cada navegación y volvería a pedirle consentimiento al usuario.
 
 ---
 
-## 4. Compatibilidad con View Transitions
+## 3. Script de configuración `cookieconsent.js`
 
-Si usas `<ClientRouter />` (Astro 5/6) las navegaciones son client-side y el `<body>` se reemplaza, por lo que el modal del banner desaparecería en cada navegación.
+Archivo completo en `src/scripts/cookieconsent.js`:
 
-**Solución**: marcar el contenedor del modal como persistente con `transition:persist`.
+```js
+import * as CookieConsent from "@antoniovalls/cookieconsent";
 
-`CookieBanner.astro`:
+// ─── Google Consent Mode v2 ───────────────────────────────────────────────────
+// Estado inicial: todo denegado hasta consentimiento explícito.
+window.dataLayer = window.dataLayer || [];
+window.gtag =
+  window.gtag ||
+  function gtag() {
+    window.dataLayer.push(arguments);
+  };
 
-```astro
----
----
+window.gtag("consent", "default", {
+  ad_storage: "denied",
+  analytics_storage: "denied",
+  ad_user_data: "denied",
+  ad_personalization: "denied",
+  functionality_storage: "granted",
+  security_storage: "granted",
+});
 
-<div id="cc-root" transition:persist></div>
+// ─── Actualiza Consent Mode según categorías aceptadas ───────────────────────
+function updateGoogleConsent() {
+  const analyticsAccepted = CookieConsent.acceptedCategory("analytics");
+  const marketingAccepted = CookieConsent.acceptedCategory("marketing");
 
-<script>
-    import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-    import * as CookieConsent from '@antoniovalls/cookieconsent';
+  window.gtag("consent", "update", {
+    analytics_storage: analyticsAccepted ? "granted" : "denied",
+    ad_storage: marketingAccepted ? "granted" : "denied",
+    ad_user_data: marketingAccepted ? "granted" : "denied",
+    ad_personalization: marketingAccepted ? "granted" : "denied",
+  });
+}
 
-    const init = () => {
-        if (window.__ccInitialized) return;
-        window.__ccInitialized = true;
+// ─── Carga Google Analytics (solo si acepta analítica) ───────────────────────
+function loadGoogleAnalytics() {
+  if (window.__gaLoaded) return;
 
-        CookieConsent.run({
-            root: '#cc-root',
-            // ... resto de la configuración
-        });
-    };
+  const measurementId = "G-XXXXXXXXXX"; // ← sustituir por el ID real
 
-    // Primera carga
-    init();
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
+  document.head.appendChild(script);
 
-    // Si Astro re-ejecuta el script al volver con bfcache / SSR
-    document.addEventListener('astro:page-load', init);
-</script>
-```
+  window.gtag("js", new Date());
+  window.gtag("config", measurementId, { anonymize_ip: true });
 
-> El `transition:persist` evita que Astro reemplace el `<div id="cc-root">` durante la navegación, así el modal y sus listeners sobreviven entre páginas.
+  window.__gaLoaded = true;
+}
 
-### Layout con `<ClientRouter />`
+// ─── Google Maps: carga / descarga iframes condicionalmente ──────────────────
+function loadGoogleMapsEmbeds() {
+  document.querySelectorAll("[data-map-iframe]").forEach((iframe) => {
+    if (iframe.dataset.loaded === "true") return;
+    if (iframe.dataset.src) {
+      iframe.src = iframe.dataset.src;
+      iframe.dataset.loaded = "true";
+    }
+  });
+  document.querySelectorAll("[data-map-placeholder]").forEach((el) => {
+    el.classList.add("hidden");
+  });
+}
 
-`BaseLayout.astro`:
+function unloadGoogleMapsEmbeds() {
+  document.querySelectorAll("[data-map-iframe]").forEach((iframe) => {
+    iframe.removeAttribute("src");
+    iframe.dataset.loaded = "false";
+  });
+  document.querySelectorAll("[data-map-placeholder]").forEach((el) => {
+    el.classList.remove("hidden");
+  });
+}
 
-```astro
----
-import { ClientRouter } from 'astro:transitions';
-import CookieBanner from '../components/CookieBanner.astro';
----
+function updateGoogleMapsConsent() {
+  if (CookieConsent.acceptedCategory("marketing")) {
+    loadGoogleMapsEmbeds();
+  } else {
+    unloadGoogleMapsEmbeds();
+  }
+}
 
-<!doctype html>
-<html lang="es">
-    <head>
-        <ClientRouter />
-        <!-- ... -->
-    </head>
-    <body>
-        <slot />
-        <CookieBanner />
-    </body>
-</html>
-```
+// Botones "Aceptar para ver el mapa" dentro de cada placeholder
+function initMapConsentButtons() {
+  document.querySelectorAll("[data-map-consent-btn]").forEach((button) => {
+    button.addEventListener("click", () => {
+      CookieConsent.acceptCategory("marketing");
+      loadGoogleMapsEmbeds();
+      updateGoogleConsent();
+      loadMarketingScripts();
+    });
+  });
+}
 
-> Astro 5+ usa `<ClientRouter />` (en versiones anteriores se llamaba `<ViewTransitions />`).
+// ─── Scripts de marketing (Meta Pixel, Google Ads, etc.) ─────────────────────
+function loadMarketingScripts() {
+  if (window.__marketingLoaded) return;
 
----
+  // Añadir aquí los pixels o tags de marketing necesarios
+  // Ejemplo: console.log("Marketing scripts cargados");
 
-## 5. Configuración con i18n del sitio
+  window.__marketingLoaded = true;
+}
 
-Si tu Astro tiene rutas multidioma (`/es/...`, `/en/...`), detecta el idioma actual y úsalo como `default`:
+// ─── Configuración principal de CookieConsent ────────────────────────────────
+CookieConsent.run({
+  root: "#cc-root",
 
-`CookieBanner.astro`:
+  guiOptions: {
+    consentModal: {
+      layout: "box",
+      position: "bottom right",
+      equalWeightButtons: true,
+      flipButtons: false,
+    },
+    preferencesModal: {
+      layout: "box",
+      position: "right",
+      equalWeightButtons: true,
+      flipButtons: false,
+    },
+  },
 
-```astro
----
-const lang = Astro.currentLocale ?? 'es';
----
+  categories: {
+    necessary: {
+      enabled: true,
+      readOnly: true,
+    },
+    analytics: {
+      enabled: false,
+      autoClear: {
+        cookies: [
+          { name: /^_ga/ },
+          { name: "_gid" },
+        ],
+      },
+    },
+    marketing: {
+      enabled: false,
+      autoClear: {
+        cookies: [
+          { name: /^_fbp/ },
+          { name: /^_gcl/ },
+        ],
+      },
+    },
+  },
 
-<div id="cc-root" transition:persist data-lang={lang}></div>
-
-<script>
-    import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-    import * as CookieConsent from '@antoniovalls/cookieconsent';
-
-    const root = document.getElementById('cc-root')!;
-    const lang = root.dataset.lang ?? 'es';
-
-    if (!window.__ccInitialized) {
-        window.__ccInitialized = true;
-
-        CookieConsent.run({
-            root: '#cc-root',
-            language: {
-                default: lang,
-                translations: {
-                    es: { /* ... */ },
-                    en: { /* ... */ },
-                    ca: { /* ... */ }
-                }
+  language: {
+    default: "es",
+    translations: {
+      es: {
+        consentModal: {
+          title: "Usamos cookies",
+          description:
+            "Utilizamos cookies propias y de terceros para garantizar el funcionamiento de la web, analizar el tráfico y, si nos das permiso, mejorar nuestras campañas de marketing.",
+          acceptAllBtn: "Aceptar todas",
+          acceptNecessaryBtn: "Rechazar opcionales",
+          showPreferencesBtn: "Configurar",
+          footer: `
+            <a href="/politica-de-cookies/">Política de cookies</a>
+            <a href="/politica-de-privacidad/">Política de privacidad</a>
+          `,
+        },
+        preferencesModal: {
+          title: "Configurar cookies",
+          acceptAllBtn: "Aceptar todas",
+          acceptNecessaryBtn: "Rechazar opcionales",
+          savePreferencesBtn: "Guardar configuración",
+          closeIconLabel: "Cerrar",
+          sections: [
+            {
+              title: "Uso de cookies",
+              description:
+                "Puedes elegir qué categorías de cookies permites. Las cookies técnicas son necesarias para que la web funcione correctamente.",
             },
-            categories: {
-                necessary: { enabled: true, readOnly: true },
-                analytics: {}
-            }
-        });
-    }
-</script>
-```
-
-Para cambiar idioma cuando el usuario navega entre `/es` y `/en`:
-
-```js
-document.addEventListener('astro:after-swap', () => {
-    const newLang = document.documentElement.lang;
-    CookieConsent.setLanguage(newLang);
-});
-```
-
----
-
-## 6. Tema claro/oscuro siguiendo al sitio
-
-Si tu sitio alterna `class="dark"` en el `<html>`, sincroniza con el plugin (que espera `cc--darkmode`):
-
-```js
-const syncTheme = () => {
-    const isDark = document.documentElement.classList.contains('dark');
-    document.documentElement.classList.toggle('cc--darkmode', isDark);
-};
-
-syncTheme();
-
-// Si tu app cambia el tema en runtime
-new MutationObserver(syncTheme).observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class']
-});
-```
-
-Pégalo dentro del mismo `<script>` del componente, debajo del `CookieConsent.run()`.
-
----
-
-## 7. Carga condicional de Google Analytics 4
-
-Patrón recomendado: cargar GA4 **solo** si el usuario acepta `analytics`. No uses `<script>` directamente en el `<head>`.
-
-`CookieBanner.astro` (extendiendo el ejemplo anterior):
-
-```astro
----
-const GA_ID = 'G-XXXXXXXXXX';
----
-
-<div id="cc-root" transition:persist data-ga={GA_ID}></div>
-
-<script>
-    import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-    import * as CookieConsent from '@antoniovalls/cookieconsent';
-
-    const gaId = document.getElementById('cc-root')!.dataset.ga!;
-
-    const loadGA = async () => {
-        await CookieConsent.loadScript(`https://www.googletagmanager.com/gtag/js?id=${gaId}`);
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){ dataLayer.push(arguments); }
-        gtag('js', new Date());
-        gtag('config', gaId, { anonymize_ip: true });
-    };
-
-    if (!window.__ccInitialized) {
-        window.__ccInitialized = true;
-
-        CookieConsent.run({
-            root: '#cc-root',
-            categories: {
-                necessary: { enabled: true, readOnly: true },
-                analytics: {
-                    autoClear: { cookies: [{ name: /^_ga/ }, { name: '_gid' }] },
-                    services: {
-                        ga: {
-                            label: 'Google Analytics',
-                            onAccept: loadGA
-                        }
-                    }
-                }
+            {
+              title: "Cookies necesarias",
+              description:
+                "Son imprescindibles para el funcionamiento básico de la web y no se pueden desactivar.",
+              linkedCategory: "necessary",
             },
-            language: { /* ... */ }
-        });
-    }
-</script>
-```
+            {
+              title: "Cookies de analítica",
+              description:
+                "Nos ayudan a entender cómo se utiliza la web para mejorar contenidos, navegación y rendimiento.",
+              linkedCategory: "analytics",
+            },
+            {
+              title: "Cookies de marketing",
+              description:
+                "Permiten medir campañas publicitarias y mostrar contenido o anuncios personalizados.",
+              linkedCategory: "marketing",
+            },
+            {
+              title: "Más información",
+              description:
+                'Puedes consultar todos los detalles en nuestra <a href="/politica-de-cookies/">Política de cookies</a>.',
+            },
+          ],
+        },
+      },
+    },
+  },
 
-### Tracking de page views con View Transitions
+  // Callbacks: se ejecutan en el momento del consentimiento
+  onFirstConsent: () => {
+    updateGoogleConsent();
+    updateGoogleMapsConsent();
+    if (CookieConsent.acceptedCategory("analytics")) loadGoogleAnalytics();
+    if (CookieConsent.acceptedCategory("marketing")) loadMarketingScripts();
+  },
 
-Con `<ClientRouter />` no hay recargas, así que GA4 no contará los page views automáticamente. Hay que dispararlos manualmente:
+  onConsent: () => {
+    updateGoogleConsent();
+    updateGoogleMapsConsent();
+    if (CookieConsent.acceptedCategory("analytics")) loadGoogleAnalytics();
+    if (CookieConsent.acceptedCategory("marketing")) loadMarketingScripts();
+  },
 
-```js
-document.addEventListener('astro:page-load', () => {
-    if (CookieConsent.acceptedService('Google Analytics', 'analytics') && window.gtag) {
-        window.gtag('event', 'page_view', {
-            page_path: location.pathname,
-            page_title: document.title
-        });
-    }
+  onChange: () => {
+    updateGoogleConsent();
+    updateGoogleMapsConsent();
+    if (CookieConsent.acceptedCategory("analytics")) loadGoogleAnalytics();
+    if (CookieConsent.acceptedCategory("marketing")) loadMarketingScripts();
+  },
+});
+
+// Reinicializar botones del mapa en cada navegación (View Transitions)
+document.addEventListener("astro:page-load", () => {
+  initMapConsentButtons();
+  updateGoogleMapsConsent();
 });
 ```
 
 ---
 
-## 8. Botón para reabrir preferencias
+## 4. Personalización de estilos `cookieconsent-custom.css`
 
-En tu `Footer.astro`:
-
-```astro
-<footer>
-    <nav>
-        <a href="/privacidad">Privacidad</a>
-        <a href="/aviso-legal">Aviso legal</a>
-        <button type="button" data-cc="show-preferencesModal">
-            Configurar cookies
-        </button>
-    </nav>
-</footer>
-```
-
-El atributo `data-cc="show-preferencesModal"` lo gestiona el plugin automáticamente — no necesitas JS adicional.
-
-Otros valores útiles:
-- `data-cc="show-consentModal"` — reabrir el banner
-- `data-cc="accept-all"` — aceptar todas
-- `data-cc="accept-necessary"` — solo necesarias
-- `data-cc="accept-custom"` — aceptar la selección actual
-
----
-
-## 9. TypeScript
-
-El paquete incluye `types/index.d.ts`. Astro lo detecta automáticamente.
-
-Si quieres declarar la propiedad global `__ccInitialized` que usamos:
-
-`src/env.d.ts`:
-
-```ts
-/// <reference types="astro/client" />
-
-declare global {
-    interface Window {
-        __ccInitialized?: boolean;
-        dataLayer?: any[];
-        gtag?: (...args: any[]) => void;
-    }
-}
-
-export {};
-```
-
-Para tipar la configuración:
-
-```ts
-import type * as CookieConsent from '@antoniovalls/cookieconsent';
-
-const config: Parameters<typeof CookieConsent.run>[0] = {
-    categories: { necessary: { enabled: true, readOnly: true } },
-    language: { default: 'es', translations: { es: { /* ... */ } } }
-};
-```
-
----
-
-## 10. Variables CSS personalizadas
-
-Sobreescribe las variables del plugin en tu CSS global (`src/styles/global.css`):
+Sobrescribe las variables CSS del banner para que coincida con la identidad visual del proyecto:
 
 ```css
-:root {
-    --cc-bg: #ffffff;
-    --cc-primary-color: #18181b;
-    --cc-secondary-color: #52525b;
-    --cc-btn-primary-bg: #18181b;
-    --cc-btn-primary-color: #fff;
-    --cc-btn-primary-hover-bg: #27272a;
-    --cc-btn-secondary-bg: #f4f4f5;
-    --cc-btn-secondary-color: #18181b;
-    --cc-btn-secondary-hover-bg: #e4e4e7;
-    --cc-toggle-bg-on: #18181b;
-    --cc-toggle-bg-off: #a1a1aa;
-    --cc-toggle-knob-bg: #fff;
-    --cc-overlay-bg: rgba(0, 0, 0, 0.65);
-    --cc-modal-border-radius: 0.75rem;
-    --cc-btn-border-radius: 0.5rem;
-}
-
-.cc--darkmode {
-    --cc-bg: #09090b;
-    --cc-primary-color: #fafafa;
-    --cc-secondary-color: #a1a1aa;
-    --cc-btn-primary-bg: #fafafa;
-    --cc-btn-primary-color: #18181b;
-    --cc-btn-secondary-bg: #27272a;
-    --cc-btn-secondary-color: #fafafa;
-}
-```
-
-Importa el CSS global en tu Layout:
-
-```astro
----
-import '../styles/global.css';
----
-```
-
-> El CSS del plugin se carga desde el `<script>` del componente (`import '@antoniovalls/cookieconsent/dist/cookieconsent.css'`). Tus overrides en `global.css` deben cargarse **después** para que ganen.
-
-Si tienes problemas de orden, importa el CSS del plugin también en `global.css` al principio:
-
-```css
-@import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-
-/* tus overrides aquí */
-:root { /* ... */ }
-```
-
-Y quita el `import` del CSS del componente.
-
----
-
-## 11. SSR vs estático
-
-CookieConsent es **100% cliente**. No se ejecuta en el servidor — los `<script>` de Astro siempre corren en el navegador. No tienes que hacer nada especial:
-
-- **`output: 'static'`**: funciona ✓
-- **`output: 'server'` (SSR)**: funciona ✓
-- **`output: 'hybrid'`**: funciona ✓
-
-El plugin usa `localStorage` o cookies según `cookie.useLocalStorage`. En SSR no toques esto desde el servidor — déjalo en el `<script>` del componente.
-
----
-
-## 12. Troubleshooting
-
-### El modal aparece pero el CSS no se carga
-
-Asegúrate de importar el CSS dentro del `<script>` del componente, **no** desde el frontmatter:
-
-```astro
-<!-- ❌ MAL -->
----
-import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
----
-
-<!-- ✓ BIEN -->
-<script>
-    import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
-</script>
-```
-
-### Con View Transitions el banner desaparece al navegar
-
-Falta `transition:persist` en el contenedor:
-
-```astro
-<div id="cc-root" transition:persist></div>
-```
-
-### Se inicializa varias veces / aparece dos veces
-
-Falta el guard `window.__ccInitialized`. Sin View Transitions, Astro re-ejecuta el script en cada carga; con bfcache (volver atrás) puede dispararse otra vez.
-
-### El idioma no cambia al navegar entre `/es` y `/en`
-
-Hay que llamar a `setLanguage` en el evento `astro:after-swap`:
-
-```js
-document.addEventListener('astro:after-swap', () => {
-    CookieConsent.setLanguage(document.documentElement.lang);
-});
-```
-
-### TypeScript se queja de `Cannot find module '@antoniovalls/cookieconsent'`
-
-Reinicia el servidor TypeScript del editor. En VS Code: `Cmd/Ctrl+Shift+P` → "TypeScript: Restart TS Server".
-
-Si persiste, comprueba que `types/index.d.ts` está en el paquete instalado:
-
-```bash
-ls node_modules/@antoniovalls/cookieconsent/types/
-```
-
-### El analytics no se dispara en navegaciones internas
-
-Con `<ClientRouter />` no hay recargas. Tienes que disparar `page_view` manualmente en `astro:page-load` (ver sección 7).
-
-### El banner aparece detrás de otros elementos
-
-Aumenta el `z-index` en tu CSS:
-
-```css
-.cc-overlay,
 #cc-main {
-    z-index: 9999 !important;
+  --cc-bg: #ffffff;
+  --cc-primary-color: #111827;
+  --cc-secondary-color: #4b5563;
+
+  --cc-btn-primary-bg: #111827;
+  --cc-btn-primary-color: #ffffff;
+  --cc-btn-primary-border-color: #111827;
+  --cc-btn-primary-hover-bg: #000000;
+  --cc-btn-primary-hover-color: #ffffff;
+  --cc-btn-primary-hover-border-color: #000000;
+
+  --cc-btn-secondary-bg: #f3f4f6;
+  --cc-btn-secondary-color: #111827;
+  --cc-btn-secondary-border-color: #f3f4f6;
+  --cc-btn-secondary-hover-bg: #e5e7eb;
+  --cc-btn-secondary-hover-color: #111827;
+  --cc-btn-secondary-hover-border-color: #e5e7eb;
+
+  --cc-toggle-on-bg: #111827;
+  --cc-toggle-off-bg: #d1d5db;
+  --cc-toggle-on-knob-bg: #ffffff;
+  --cc-toggle-off-knob-bg: #ffffff;
+}
+
+#cc-main .cm {
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.18);
+}
+
+#cc-main .cm__title,
+#cc-main .pm__title {
+  font-weight: 700;
 }
 ```
 
 ---
 
-## Resumen rápido
+## 5. Integrar Google Maps con consentimiento
 
-Lo mínimo viable en Astro:
+Para cualquier iframe de Google Maps, usar `data-src` en lugar de `src` y añadir un placeholder de bloqueo:
 
-1. `pnpm add github:AntonioValls/cookieconsent`
-2. Crear `src/components/CookieBanner.astro` con el snippet de la sección 2 (con `transition:persist` si usas `<ClientRouter />`).
-3. Incluir `<CookieBanner />` antes de `</body>` en tu Layout.
-4. Si usas analytics, configurar `services` con `onAccept` que llama a `CookieConsent.loadScript(...)`.
-5. Si usas View Transitions, escuchar `astro:page-load` para mantener el plugin sincronizado con la nueva página.
+```html
+<!-- Placeholder visible mientras no hay consentimiento de marketing -->
+<div
+    data-map-placeholder
+    class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-100"
+  >
+    <svg
+      width="32"
+      height="32"
+      fill="none"
+      stroke="#15297f"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 12m-3 0a3 3 0 1 0 6 0 3 3 0 1 0-6 0"></path>
+      <path
+        d="M12 2a7 7 0 0 1 7 7c0 5.25-7 13-7 13S5 14.25 5 9a7 7 0 0 1 7-7"
+      ></path>
+    </svg>
 
-Para el resto de opciones (categorías, traducciones, callbacks, API completa) consulta [USAGE.md](./USAGE.md).
+    <p class="px-4 text-center text-sm text-slate-500">
+      Acepta las cookies de terceros para ver el mapa.
+    </p>
+
+    <button
+      type="button"
+      data-map-consent-btn
+      class="rounded-xl bg-autoliver-blue px-4 py-2 text-sm font-semibold text-white transition hover:bg-autoliver-dark-blue"
+    >
+      Aceptar y ver mapa
+    </button>
+
+    <button
+      type="button"
+      data-cc="show-preferencesModal"
+      class="text-xs font-medium text-slate-500 underline underline-offset-4 hover:text-slate-700"
+    >
+      Configurar cookies
+    </button>
+  </div>
+
+<!-- Iframe bloqueado hasta consentimiento -->
+<iframe
+  title="Ubicación xxxx"
+  data-map-iframe
+  data-src="https://www.google.com/maps/embed?pb=TU_EMBED_URL"
+  data-loaded="false"
+  width="600"
+  height="450"
+  style="border:0;"
+  allowfullscreen=""
+  loading="lazy"
+  referrerpolicy="no-referrer-when-downgrade"
+></iframe>
+```
+
+El script `loadGoogleMapsEmbeds()` transfiere `data-src` a `src` solo cuando el usuario acepta la categoría `marketing`, y `unloadGoogleMapsEmbeds()` elimina `src` si retira el consentimiento.
+
+---
+
+## 6. Configurar Google Analytics real
+
+En `cookieconsent.js`, sustituir el placeholder:
+
+```js
+const measurementId = "G-XXXXXXXXXX"; // ← reemplazar por el ID real de GA4
+```
+
+---
+
+## 7. Callbacks disponibles
+
+| Callback | Cuándo se ejecuta |
+|---|---|
+| `onFirstConsent` | Primera vez que el usuario acepta o rechaza |
+| `onConsent` | En cada carga de página cuando ya existe preferencia guardada |
+| `onChange` | Cuando el usuario modifica sus preferencias en el modal |
+
+Los tres deben actualizar `updateGoogleConsent()` y `updateGoogleMapsConsent()` para que el estado de los scripts refleje las preferencias actuales.
+
+---
+
+## 8. Categorías de cookies
+
+| Categoría | `enabled` por defecto | `readOnly` | Limpia cookies al rechazar |
+|---|---|---|---|
+| `necessary` | `true` | `true` | No |
+| `analytics` | `false` | `false` | `_ga*`, `_gid` |
+| `marketing` | `false` | `false` | `_fbp*`, `_gcl*` |
+
+---
+
+## 9. Botón "Configurar cookies" en el Footer
+
+CookieConsent expone el atributo `data-cc` para disparar acciones sin JS adicional. Úsalo en cualquier elemento del DOM, como el footer, para que el usuario pueda revisar sus preferencias en cualquier momento:
+
+```astro
+<button
+  type="button"
+  data-cc="show-preferencesModal"
+  class="text-sm underline underline-offset-4 cursor-pointer"
+>
+  Configurar cookies
+</button>
+```
+
+**Valores disponibles para `data-cc`:**
+
+| Valor | Acción |
+|---|---|
+| `show-preferencesModal` | Abre el modal de configuración de categorías |
+| `show-consentModal` | Vuelve a mostrar el banner inicial |
+| `accept-all` | Acepta todas las categorías |
+| `accept-necessary` | Rechaza todas las categorías opcionales |
+
+No requiere ningún `addEventListener` extra; el paquete detecta estos atributos automáticamente al inicializarse.
+
+---
+
+## Notas importantes
+
+- **`transition:persist`** en `#cc-root` es obligatorio cuando se usa `<ClientRouter />`. Sin él, el banner reaparecería en cada navegación.
+- El evento **`astro:page-load`** sustituye a `DOMContentLoaded` en proyectos con View Transitions. Usarlo para reinicializar elementos del DOM que cambian entre páginas (como botones de mapa).
+- **Google Consent Mode v2** se inicializa en modo `denied` antes de que cargue cualquier script de Google. Los scripts de GA y Maps solo se inyectan tras el consentimiento explícito.
+- El flag `window.__gaLoaded` evita cargar el script de Analytics más de una vez por sesión.
