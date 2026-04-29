@@ -4,9 +4,12 @@ Fork personal de [vanilla-cookieconsent](https://github.com/orestbida/cookiecons
 
 Plugin ligero y compatible con GDPR para gestionar el consentimiento de cookies, escrito en JavaScript vanilla.
 
-## Instalación
+## Documentación
 
-Desde GitHub directamente:
+- 📘 [**USAGE.md**](./USAGE.md) — Manual completo: API, configuración, callbacks, traducciones, recetas frecuentes.
+- 🚀 [**ASTRO.md**](./ASTRO.md) — Guía específica para integrarlo en proyectos Astro 5/6 (View Transitions, i18n, GA4, etc.).
+
+## Instalación
 
 ```bash
 pnpm add github:AntonioValls/cookieconsent
@@ -15,7 +18,7 @@ pnpm add github:AntonioValls/cookieconsent
 ## Uso básico
 
 ```js
-import 'vanilla-cookieconsent/dist/cookieconsent.css';
+import '@antoniovalls/cookieconsent/dist/cookieconsent.css';
 import * as CookieConsent from '@antoniovalls/cookieconsent';
 
 CookieConsent.run({
@@ -51,17 +54,14 @@ CookieConsent.run({
 });
 ```
 
-## Documentación
-
-La documentación completa de la API base está en el proyecto original: [cookieconsent.orestbida.com](https://cookieconsent.orestbida.com).
+Para integración en Astro, ver [ASTRO.md](./ASTRO.md).
 
 ## Desarrollo
 
 ```bash
 pnpm install
-pnpm build      # genera dist/
+pnpm build      # genera dist/ (UMD + ESM + CSS)
 pnpm dev        # rebuild en watch
-pnpm test       # jest
 ```
 
 ## Créditos
